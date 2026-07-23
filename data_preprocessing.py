@@ -9,6 +9,8 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.ensemble import RandomForestClassifier
+from anamoly_detection_nn import AthleteAnomalyDataset, AnomalyDetectorANN, train_anomaly_model
+from torch.utils.data import DataLoader
 
 logging.basicConfig(
     level=logging.INFO,
@@ -115,8 +117,7 @@ class DataPipelineProcessor:
         preprocessor: ColumnTransformer = ColumnTransformer(transformers=transformers)
         
         self.model_pipeline = Pipeline(steps=[
-            ('preprocessor', preprocessor),
-            ('classifier', RandomForestClassifier(random_state=42))
+            ('preprocessor', preprocessor)
         ])
 
         logging.info("Executing fit: Preprocessing data and training Random Forest...")
@@ -133,23 +134,24 @@ class DataPipelineProcessor:
         else:
             logging.error("No pipeline exists to save. Must build and train first.")
 
-    def run(self, save_path: Optional[str] = "model_pipeline.pkl") -> Pipeline:
+    def run(self, save_path: Optional[str] = "model_pipeline.pkl") -> tuple:
         logging.info("Starting pipeline execution...")
-        start_time: float = time.perf_counter()
-        
         self.load_data()
         self.clean_commas()
         self.engineer_group_features()
+        
+        # Build pipeline and transform the data simultaneously
         self.build_and_train_pipeline()
+        X = self.df.drop(columns=[self.target_column])
+        y = self.df[self.target_column].values
+        
+        # Extract the finalized mathematical matrix
+        X_processed = self.model_pipeline.fit_transform(X) 
         
         if save_path:
             self.save_pipeline(save_path)
             
-        end_time: float = time.perf_counter()
-        execution_duration: float = end_time - start_time
-        
-        logging.info(f"Pipeline execution completed in {execution_duration:.4f} seconds.")
-        return self.model_pipeline
+        return X_processed, y
 
 if __name__ == "__main__":
     processor = DataPipelineProcessor(
@@ -158,4 +160,15 @@ if __name__ == "__main__":
         date_columns=[], 
         group_col='athlete_id' 
     )
-    trained_pipeline = processor.run(save_path="production_pipeline.pkl")
+    
+    X_matrix, y_vector = processor.run(save_path="production_pipeline.pkl")
+    
+    print("Converting to PyTorch Tensors...")
+    dataset = AthleteAnomalyDataset(X_matrix, y_vector)
+    loader = DataLoader(dataset, batch_size=32, shuffle=True)
+    
+    input_dim = X_matrix.shape[1]
+    model = AnomalyDetectorANN(input_dim=input_dim, hidden_dim=16)
+    
+    print("Initiating PyTorch Deep Learning Core...")
+    trained_model = train_anomaly_model(model=model, dataloader=loader, epochs=15, lr=0.001)
