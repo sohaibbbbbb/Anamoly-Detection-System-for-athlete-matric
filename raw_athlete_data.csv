@@ -1,0 +1,4 @@
+athlete_id,bodyweight,squat,bench,deadlift,anomaly_flag
+101,67.5,142.5,95,175,0
+202,75,160,110,190,0
+305,80,180,120,200,0
